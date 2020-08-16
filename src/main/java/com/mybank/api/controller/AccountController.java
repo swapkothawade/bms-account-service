@@ -2,8 +2,11 @@ package com.mybank.api.controller;
 
 import com.mybank.api.domain.AccountDetails;
 import com.mybank.api.domain.AccountTransaction;
+import com.mybank.api.service.UploadService;
 import com.mybank.api.service.AccountService;
-import com.mybank.api.service.FileUploadService;
+import com.mybank.api.service.FileLocalUploadService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -17,11 +20,14 @@ import java.util.List;
 @RequestMapping("/api")
 public class AccountController {
 
+    private final Logger LOGGER = LoggerFactory.getLogger(this.getClass());
+
     @Autowired
     private AccountService accountService;
 
+
     @Autowired
-    FileUploadService storageService;
+    private UploadService service;
 
     /**
      * Post new transaction
@@ -61,12 +67,12 @@ public class AccountController {
     }
 
 
-    @PostMapping("/restricted/account/upload")
+    @PostMapping("/restricted/local/upload")
     public ResponseEntity<String> uploadFile(@RequestParam("file") MultipartFile file) {
         System.out.println("Upload request received for " + file.getOriginalFilename());
         String message = "";
         try {
-            storageService.save(file);
+            service.uploadFile(file);
 
             message = "File Uploaded successfully: " + file.getOriginalFilename();
             return ResponseEntity.status(HttpStatus.OK).body(message);
@@ -74,6 +80,16 @@ public class AccountController {
             message = "File Upload Failed: " + file.getOriginalFilename() + "!";
             return ResponseEntity.status(HttpStatus.EXPECTATION_FAILED).body(message);
         }
+    }
+
+
+
+    @PostMapping(value= "/restricted/upload")
+    public ResponseEntity<String> uploadInS3(@RequestPart(value= "file") final MultipartFile multipartFile) {
+        LOGGER.info("Request Received for {}",multipartFile.getName());
+        service.uploadFile(multipartFile);
+        final String response = "[" + multipartFile.getOriginalFilename() + "] uploaded successfully.";
+        return new ResponseEntity<>(response, HttpStatus.OK);
     }
 
 
