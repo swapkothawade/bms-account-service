@@ -9,6 +9,8 @@ import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVPrinter;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
@@ -21,109 +23,132 @@ import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
 
-
 @Service
 public class AccountService {
-    @Autowired
-   private AccountDao accountDao;
+	private final Logger log = LoggerFactory.getLogger(this.getClass());
+	
+	@Autowired
+	private AccountDao accountDao;
+	
+	public AccountDetails getAccountDetails(String accountid) {
+		return accountDao.getAccountDetail(accountid);
+	}
 
-    public AccountDetails getAccountDetails(String accountid) {
-       return  accountDao.getAccountDetail(accountid);
-    }
+	public List<AccountTransaction> getTransactionDetails(String accountid) {
+		return accountDao.getAccountStatment(accountid);
+	}
 
-    public List<AccountTransaction> getTransactionDetails(String accountid) {
-        return accountDao.getAccountStatment(accountid);
-    }
+	/**
+	 * Download reports in requested format
+	 * @param accountid
+	 * @param reportformat
+	 * @param response
+	 * @throws Exception
+	 */
+	public void downloadReport(String accountid, String reportformat, HttpServletResponse response) throws Exception {
+		log.info("Download request received for {} and Requested format {}",accountid,reportformat);
+		List<AccountTransaction> transactions = accountDao.getAccountStatment(accountid);
+		String filename = String.format("AccountStatement%s.%s", LocalDateTime.now(), reportformat);
+		if (reportformat.equalsIgnoreCase("csv")) {
+			downloadCsvReport(transactions, filename, response);
+		} else if (reportformat.equalsIgnoreCase("xlsx") || reportformat.equalsIgnoreCase("xls")) {
+			downloadXlsReport(transactions, filename, response);
+		} else {
+			throw new IllegalArgumentException("Invalid request type");
 
-    public void downloadReport(String accountid, String type, HttpServletResponse response) throws Exception {
-        if(type.equalsIgnoreCase("csv")){
-            downloadCsvReport(accountid,type,response);
-        }else if(type.equalsIgnoreCase("xlsx") || type.equalsIgnoreCase("xls")){
-            downloadXlsReport(accountid,type,response);
-        }else{
-            throw new IllegalArgumentException("Invalid request type");
+		}
+		log.info("File Generated {} ",filename);
+	}
 
-        }
-    }
+	private ByteArrayInputStream downloadXlsReport(List<AccountTransaction> transactions, String filename,
+			HttpServletResponse response) throws Exception {
 
-    private ByteArrayInputStream downloadXlsReport(String accountid, String type, HttpServletResponse response) throws Exception{
-        String filename = String.format("AccountStatement%s.%s", LocalDateTime.now(),type);
-        List<AccountTransaction> transactions= accountDao.getAccountStatment(accountid);
+		String[] HEADERS = { "Transaction Date", "Transaction Remarks", "Withdrawal Amount (INR )",
+				"Deposit Amount (INR )", "Balance (INR )" };
+		try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream();) {
+			response.setContentType("application/vnd.ms-excel");
+			response.setHeader(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"");
+			CreationHelper createHelper = workbook.getCreationHelper();
 
+			Sheet sheet = workbook.createSheet("Account Statement");
 
-            String[] HEADERS = {"Transaction Date", "Transaction Remarks", "Withdrawal Amount (INR )","Deposit Amount (INR )","Balance (INR )"};
-            try(
-                    Workbook workbook = new XSSFWorkbook();
-                    ByteArrayOutputStream out = new ByteArrayOutputStream();
-            ){
-                response.setContentType("application/vnd.ms-excel");
-                response.setHeader(HttpHeaders.CONTENT_DISPOSITION,
-                        "attachment; filename=\"" + filename + "\"");
-                CreationHelper createHelper = workbook.getCreationHelper();
+			Font headerFont = workbook.createFont();
+			headerFont.setBold(true);
+			headerFont.setColor(IndexedColors.BLUE.getIndex());
 
-                Sheet sheet = workbook.createSheet("Account Statement");
+			CellStyle headerCellStyle = workbook.createCellStyle();
+			headerCellStyle.setFont(headerFont);
 
-                Font headerFont = workbook.createFont();
-                headerFont.setBold(true);
-                headerFont.setColor(IndexedColors.BLUE.getIndex());
+			// Row for Header
+			Row headerRow = sheet.createRow(0);
 
-                CellStyle headerCellStyle = workbook.createCellStyle();
-                headerCellStyle.setFont(headerFont);
+			// Header
+			for (int col = 0; col < HEADERS.length; col++) {
+				Cell cell = headerRow.createCell(col);
+				cell.setCellValue(HEADERS[col]);
+				cell.setCellStyle(headerCellStyle);
+			}
 
-                // Row for Header
-                Row headerRow = sheet.createRow(0);
+			// CellStyle for Age
+			CellStyle dateCellStyle = workbook.createCellStyle();
+			dateCellStyle.setDataFormat(createHelper.createDataFormat().getFormat("#"));
 
-                // Header
-                for (int col = 0; col < HEADERS.length; col++) {
-                    Cell cell = headerRow.createCell(col);
-                    cell.setCellValue(HEADERS[col]);
-                    cell.setCellStyle(headerCellStyle);
-                }
+			int rowIdx = 1;
+			for (AccountTransaction transaction : transactions) {
+				Row row = sheet.createRow(rowIdx++);
 
-                // CellStyle for Age
-                CellStyle dateCellStyle = workbook.createCellStyle();
-                dateCellStyle.setDataFormat(createHelper.createDataFormat().getFormat("#"));
+				row.createCell(0).setCellValue("" + transaction.getTransactionDateTime());
+				row.createCell(1).setCellValue(transaction.getTransactionRemark());
+				row.createCell(2).setCellValue(transaction.getTransactionType() == TransactionType.WITHDRAWAL
+						? transaction.getTransactionAmount() : 0.0);
+				row.createCell(3).setCellValue(transaction.getTransactionType() == TransactionType.DEPOSIT
+						? transaction.getTransactionAmount() : 0.0);
+				row.createCell(3).setCellValue(transaction.getBalance());
+			}
 
-                int rowIdx = 1;
-                for (AccountTransaction transaction : transactions) {
-                    Row row = sheet.createRow(rowIdx++);
+			workbook.write(out);
+			return new ByteArrayInputStream(out.toByteArray());
+		}
+	}
 
-                    row.createCell(0).setCellValue(""+transaction.getTransactionDateTime());
-                    row.createCell(1).setCellValue(transaction.getTransactionRemark());
-                    row.createCell(2).setCellValue(transaction.getTransactionType() == TransactionType.WITHDRAWAL? transaction.getTransactionAmount() : 0.0);
-                    row.createCell(3).setCellValue(transaction.getTransactionType() == TransactionType.DEPOSIT? transaction.getTransactionAmount() : 0.0);
-                    row.createCell(3).setCellValue(transaction.getBalance());
-                }
+	private void downloadCsvReport(List<AccountTransaction> transactions, String filename,
+			HttpServletResponse response) {
+		CSVPrinter csvPrinter = null;
 
-                workbook.write(out);
-                return new ByteArrayInputStream(out.toByteArray());
-            }
-        }
+		try {
+			response.setContentType("text/csv");
+			response.setHeader(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"");
+			csvPrinter = new CSVPrinter(response.getWriter(), CSVFormat.DEFAULT.withHeader("Transaction Date",
+					"Transaction Remarks", "Withdrawal Amount (INR )", "Deposit Amount (INR )", "Balance (INR )"));
 
-    private void downloadCsvReport(String accountid, String type, HttpServletResponse response) {
-        String filename = String.format("AccountStatement%s.%s", LocalDateTime.now(),type);
-        List<AccountTransaction> transactions= accountDao.getAccountStatment(accountid);
-        CSVPrinter csvPrinter = null;
+			for (AccountTransaction transaction : transactions) {
+				csvPrinter.printRecord(
+						Arrays.asList(transaction.getTransactionDateTime(), transaction.getTransactionRemark(),
+								transaction.getTransactionType() == TransactionType.WITHDRAWAL
+										? transaction.getTransactionAmount() : 0.0,
+						transaction.getTransactionType() == TransactionType.DEPOSIT ? transaction.getTransactionAmount()
+								: 0.0, transaction.getBalance()));
+			}
+			if (csvPrinter != null)
+				csvPrinter.close();
 
-        try {
-            response.setContentType("text/csv");
-            response.setHeader(HttpHeaders.CONTENT_DISPOSITION,
-                    "attachment; filename=\"" + filename + "\"");
-            csvPrinter = new CSVPrinter(response.getWriter(),
-                    CSVFormat.DEFAULT.withHeader("Transaction Date", "Transaction Remarks", "Withdrawal Amount (INR )","Deposit Amount (INR )","Balance (INR )"));
+		} catch (IOException e) {
+			csvPrinter = null;
+			e.printStackTrace();
+		}
+	}
 
-            for (AccountTransaction transaction : transactions) {
-                csvPrinter.printRecord(Arrays.asList(transaction.getTransactionDateTime(), transaction.getTransactionRemark(),
-                        transaction.getTransactionType() == TransactionType.WITHDRAWAL? transaction.getTransactionAmount() : 0.0,
-                        transaction.getTransactionType() == TransactionType.DEPOSIT? transaction.getTransactionAmount() : 0.0,
-                        transaction.getBalance()));
-            }
-            if(csvPrinter != null)
-                csvPrinter.close();
+	/**
+	 * Return account id
+	 * 
+	 * @param accountDetails
+	 * @return
+	 */
+	public long addCustomerAccount(AccountDetails accountDetails) {
+		log.info("New Account create request received for user {} ",accountDetails.getEmail());
+		long accountId = accountDao.addAccountDetails(accountDetails);
+		log.info("Account  ID {} assigned to user {}  ",accountId,accountDetails.getEmail());
+		return accountId;
 
-        } catch (IOException e) {
-            csvPrinter = null;
-            e.printStackTrace();
-        }
-    }
+	}
 }

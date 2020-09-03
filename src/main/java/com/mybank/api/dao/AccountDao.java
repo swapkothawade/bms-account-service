@@ -1,12 +1,15 @@
 package com.mybank.api.dao;
 
-import com.mongodb.MongoClientSettings;
-import com.mongodb.MongoException;
-import com.mongodb.client.MongoClient;
-import com.mongodb.client.MongoCollection;
-import com.mybank.api.domain.AccountDetails;
-import com.mybank.api.domain.AccountTransaction;
-import com.mybank.api.exception.CustomException;
+import static com.mongodb.client.model.Filters.eq;
+import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
+import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
+
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Random;
+
+import org.bson.Document;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
 import org.bson.conversions.Bson;
@@ -17,17 +20,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Iterator;
-import java.util.List;
-
-import static com.mongodb.client.model.Aggregates.sort;
-import static com.mongodb.client.model.Filters.eq;
-import static com.mongodb.client.model.Sorts.descending;
-import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
-import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
-import org.bson.Document;
+import com.mongodb.MongoClientSettings;
+import com.mongodb.MongoException;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoCollection;
+import com.mybank.api.domain.AccountDetails;
+import com.mybank.api.domain.AccountTransaction;
+import com.mybank.api.exception.CustomException;
 @Component
 public class AccountDao extends AbstractBMSDao{
 
@@ -60,10 +59,12 @@ public class AccountDao extends AbstractBMSDao{
        }
     }
 
-    public boolean addAccountDetails(AccountDetails accountDetail) {
+    public long addAccountDetails(AccountDetails accountDetail) {
        try {
+    	   long accountId = generateAccountNumber();
+    	   accountDetail.setAccountnumber(String.valueOf(accountId));
            accountDetailColllection.insertOne(accountDetail);
-           return true;
+           return accountId;
        }catch(MongoException exception){
            throw new CustomException(exception.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
        }
@@ -88,4 +89,9 @@ public class AccountDao extends AbstractBMSDao{
         transactionItr.forEachRemaining(transactions::add);
         return transactions;
     }
+    
+    private long generateAccountNumber() {
+		Random r = new Random(System.currentTimeMillis());
+		return 1000000000 + r.nextInt(2000000000) & Integer.MAX_VALUE;
+	}
 }

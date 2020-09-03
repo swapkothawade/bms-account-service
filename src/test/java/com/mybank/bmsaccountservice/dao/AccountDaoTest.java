@@ -41,8 +41,8 @@ public class AccountDaoTest {
 
     @Test
     public void addAccountTest(){
-        boolean result = this.accountDao.addAccountDetails(getAccountDetail());
-        assertTrue(result);
+        long result = this.accountDao.addAccountDetails(getAccountDetail());
+        assertNotNull(result);
     }
 
 
